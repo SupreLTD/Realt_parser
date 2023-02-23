@@ -19,4 +19,4 @@ class Flat:
         self.district = district
         self.neighborhood = neighborhood
         self.telephone = '-'
-        self.image = images
+        self.images = images

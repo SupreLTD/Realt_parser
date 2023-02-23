@@ -1,5 +1,15 @@
+from os import path
+
 import psycopg2
 from psycopg2.extras import NamedTupleCursor
+from environs import Env
+
+env = Env()
+env.read_env()
+DBNAME = env.str('DBNAME')
+USER = env.str('USER')
+PASSWORD = env.str('PASSWORD')
+HOST = env.str('HOST')
 
 
 class DbPostgres:
@@ -13,12 +23,19 @@ class DbPostgres:
     def __del__(self):
         DbPostgres.__instance = None
 
-    def __init__(self, query=None, args=None):
+    env = Env()
+    env.read_env()
+    DBNAME = env.str('DBNAME')
+    USER = env.str('USER')
+    PASSWORD = env.str('PASSWORD')
+    HOST = env.str('HOST')
+
+    def __init__(self,):
         self.conn = psycopg2.connect(
-            dbname='realt',
-            user='postgres',
-            password='7030908',
-            host='localhost'
+            dbname=self.DBNAME,
+            user=self.USER,
+            password=self.PASSWORD,
+            host=self.HOST
         )
         self.conn.autocommit = True
 
@@ -105,11 +122,8 @@ class DbPostgres:
         print(error)
         return None
 
-
-class ParserSave(DbPostgres):
-
     def create_flats_table(self):
-        self.query_update("""CREATE TABLE IF NOT EXISTS flats(
+        self.query_update("""CREATE TABLE IF NOT EXISTS realt(
         id serial PRIMARY KEY,
         link CHARACTER VARYING(300) UNIQUE NOT NULL,
         reference CHARACTER VARYING(30),
@@ -131,7 +145,7 @@ class ParserSave(DbPostgres):
 
     def insert_flat(self, flat: list):
         self.query_update("""
-         INSERT INTO flats (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
+         INSERT INTO realt (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
         address, price, telephone, area, year_of_construction, house_type, floor)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (link) DO UPDATE
@@ -151,7 +165,53 @@ class ParserSave(DbPostgres):
         year_of_construction = EXCLUDED.year_of_construction,
         house_type = EXCLUDED.house_type,
         floor = EXCLUDED.floor
-        """, (
-        flat.link, flat.reference, flat.posted_date, flat.title, flat.description, flat.city, flat.rooms, flat.district,
-        flat.neighborhood,
-        flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type, flat.floor))
+        RETURNING id INTO realt_images;
+        
+        INSERT INTO realt_images (image,realt_id) VALUES (unnest(%s)) 
+        ON CONFLICT (image) DO UPDATE 
+        SET
+        image=image
+                """, (
+            flat.link, flat.reference, flat.posted_date, flat.title, flat.description, flat.city, flat.rooms,
+            flat.district,
+            flat.neighborhood,
+            flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type,
+            flat.floor, flat.images))
+
+    def create_img_table(self,flat):
+        self.query_update("""WITH father AS(
+                 INSERT INTO realt (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
+                address, price, telephone, area, year_of_construction, house_type, floor)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (link) DO UPDATE
+                SET
+                link = EXCLUDED.link,
+                posted_date = EXCLUDED.posted_date,
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                city = EXCLUDED.city,
+                rooms = EXCLUDED.rooms,
+                district = EXCLUDED.district,
+                neighborhood = EXCLUDED.neighborhood,
+                address = EXCLUDED.address,
+                price = EXCLUDED.price,
+                telephone = EXCLUDED.telephone,
+                area = EXCLUDED.area,
+                year_of_construction = EXCLUDED.year_of_construction,
+                house_type = EXCLUDED.house_type,
+                floor = EXCLUDED.floor
+                RETURNING id 
+                )
+                
+                INSERT INTO realt_images (realt_id,image) VALUES ((select id from father), unnest(%s)) 
+                ON CONFLICT (image) DO UPDATE 
+                SET
+                image=EXCLUDED.image
+                        """, (
+            flat.link, flat.reference, flat.posted_date, flat.title, flat.description, flat.city, flat.rooms,
+            flat.district,
+            flat.neighborhood,
+            flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type,
+            flat.floor, flat.images))
+
+
