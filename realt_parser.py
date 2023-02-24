@@ -13,22 +13,7 @@ from db_client import DbPostgres
 PARSER_NAME = 'realt.by'
 
 URL = 'https://realt.by/sale/flats/'
-HEADERS = headers = {
-    'authority': 'realt.by',
-    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'accept-language': 'en-US,en;q=0.9,ru;q=0.8',
-    'cache-control': 'max-age=0',
-    # 'cookie': '_gcl_au=1.1.956878246.1676635258; currency-notice=1; adtech_uid=6dd22072-0a58-4dfa-b5cc-bfea66554e4f%3Arealt.by; top100_id=t1.808435.651698127.1676635258614; popmechanic_sbjs_migrations=popmechanic_1418474375998%3D1%7C%7C%7C1471519752600%3D1%7C%7C%7C1471519752605%3D1; _ym_uid=16766352591058509637; _ym_d=1676635259; tmr_lvid=72fee35715cda63b3dc988606cfde3a9; tmr_lvidTS=1676635259004; _gid=GA1.2.1415878234.1676807228; gdprConfirmed=1; _ym_isad=1; realt-cu=840; realt_user=2246dfa26f7b0d280aba425db8614984; last_visit=1677144674694%3A%3A1677155474694; t3_sid_808435=s1.1780419181.1677154708612.1677155474701.18.6; tmr_detect=1%7C1677155476606; _dc_gtm_UA-1011858-1=1; _ga=GA1.1.1438964484.1676635259; _ga_3RLZ0E8JHQ=GS1.1.1677154708.32.1.1677155892.60.0.0; _ym_visorc=b; mindboxDeviceUUID=4dbf44df-f4ec-4844-9ffc-c13bf3b34d35; directCrm-session=%7B%22deviceGuid%22%3A%224dbf44df-f4ec-4844-9ffc-c13bf3b34d35%22%7D',
-    'sec-ch-ua': '"Chromium";v="110", "Not A(Brand";v="24", "Google Chrome";v="110"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'document',
-    'sec-fetch-mode': 'navigate',
-    'sec-fetch-site': 'same-origin',
-    'sec-fetch-user': '?1',
-    'upgrade-insecure-requests': '1',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-}
+HEADERS = headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36',}
 
 COOKIES = {
     '_gcl_au': '1.1.956878246.1676635258',
@@ -77,7 +62,7 @@ class Parser(DbPostgres):
 
         raw_links = []
         current_page = 1
-        last_page = 2
+        last_page = 100
         bar = PixelBar('Progress', max=last_page)
         while current_page <= last_page:
 
@@ -90,17 +75,13 @@ class Parser(DbPostgres):
             current_page += 1
         bar.finish()
         links = list(filter(lambda el: 'object' in el, raw_links))
-        with open('url.txt', 'w', encoding='utf-8') as file:
-            for link in links:
-                file.write(link + '\n')
-
         return links
 
     def get_data(self):
-        links = 'https://realt.by/sale-flats/object/2972716/',
+        links = self.get_all_flat_links()
         flats = []
         for link in tqdm(links):
-            response = requests.get(link, headers=self.headers,cookies=self.cookies)
+            response = requests.get(link, headers=self.headers)
             soup = BeautifulSoup(response.content, 'lxml')
             title = soup.find('h1', class_='order-1').text.strip()
             description = soup.find('section', class_='bg-white').text.strip()
@@ -120,7 +101,6 @@ class Parser(DbPostgres):
                     place[i.find('span').text] = re.sub('.(д)|(а)|(аг)|(г)|(гп)|.\xa0', '', i.find('a').text)
                 except Exception as e:
                     place[i.find('span').text] = i.find('p').text
-
             try:
                 area = float(re.sub('[^0-9/.]', '', params['Площадь общая']))
             except Exception as e:
@@ -176,8 +156,8 @@ class Parser(DbPostgres):
                         '(https://static.realt.by/user|/)', '', img), "wb") as f:
                     for data in progress:
                         f.write(data)
-                images.append("images/" + PARSER_NAME + '/' + re.sub('(https://realt.by|/)', '', link) + '/'
-                              + re.sub('(https://static.realt.by/user|/)', '', img))
+                images.append(str("images/" + PARSER_NAME + '/' + re.sub('(https://realt.by|/)', '', link) + '/'
+                              + re.sub('(https://static.realt.by/user|/)', '', img)))
 
             flats.append(Flat(
                 link=link,
@@ -197,14 +177,18 @@ class Parser(DbPostgres):
                 year_of_construction=year,
                 images=images
             ))
-            print(images)
+
         return flats
 
     def save_flats(self):
         for flat in tqdm(self.get_data()):
-            self.create_img_table(flat)
+            try:
+                self.create_img_table(flat)
+            except Exception as e:
+                continue
+
         self.close()
 
 
-a = Parser(URL,HEADERS,COOKIES)
+a = Parser(URL,HEADERS)
 a.save_flats()

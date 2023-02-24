@@ -4,13 +4,6 @@ import psycopg2
 from psycopg2.extras import NamedTupleCursor
 from environs import Env
 
-env = Env()
-env.read_env()
-DBNAME = env.str('DBNAME')
-USER = env.str('USER')
-PASSWORD = env.str('PASSWORD')
-HOST = env.str('HOST')
-
 
 class DbPostgres:
     __instance = None
@@ -22,7 +15,7 @@ class DbPostgres:
 
     def __del__(self):
         DbPostgres.__instance = None
-
+    #Fix this PGS authorization!
     env = Env()
     env.read_env()
     DBNAME = env.str('DBNAME')
