@@ -4,6 +4,13 @@ import psycopg2
 from psycopg2.extras import NamedTupleCursor
 from environs import Env
 
+env = Env()
+env.read_env()
+DBNAME = env.str('DBNAME')
+USER = env.str('USER')
+PASSWORD = env.str('PASSWORD')
+HOST = env.str('HOST')
+
 
 class DbPostgres:
     __instance = None
@@ -15,20 +22,13 @@ class DbPostgres:
 
     def __del__(self):
         DbPostgres.__instance = None
-    #Fix this PGS authorization!
-    env = Env()
-    env.read_env()
-    DBNAME = env.str('DBNAME')
-    USER = env.str('USER')
-    PASSWORD = env.str('PASSWORD')
-    HOST = env.str('HOST')
 
-    def __init__(self,):
+    def __init__(self, dbname, user, password, host):
         self.conn = psycopg2.connect(
-            dbname=self.DBNAME,
-            user=self.USER,
-            password=self.PASSWORD,
-            host=self.HOST
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host
         )
         self.conn.autocommit = True
 
@@ -136,7 +136,7 @@ class DbPostgres:
         floor CHARACTER VARYING(10)
           )""", arg=None)
 
-    def insert_flat(self, flat: list):
+    def insert_flat_test(self, flat: list):
         self.query_update("""
          INSERT INTO realt (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
         address, price, telephone, area, year_of_construction, house_type, floor)
@@ -171,40 +171,8 @@ class DbPostgres:
             flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type,
             flat.floor, flat.images))
 
-    def create_img_table(self,flat):
-        self.query_update("""WITH father AS(
-                 INSERT INTO realt (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
-                address, price, telephone, area, year_of_construction, house_type, floor)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (link) DO UPDATE
-                SET
-                link = EXCLUDED.link,
-                posted_date = EXCLUDED.posted_date,
-                title = EXCLUDED.title,
-                description = EXCLUDED.description,
-                city = EXCLUDED.city,
-                rooms = EXCLUDED.rooms,
-                district = EXCLUDED.district,
-                neighborhood = EXCLUDED.neighborhood,
-                address = EXCLUDED.address,
-                price = EXCLUDED.price,
-                telephone = EXCLUDED.telephone,
-                area = EXCLUDED.area,
-                year_of_construction = EXCLUDED.year_of_construction,
-                house_type = EXCLUDED.house_type,
-                floor = EXCLUDED.floor
-                RETURNING id 
-                )
-                
-                INSERT INTO realt_images (realt_id,image) VALUES ((select id from father), unnest(%s)) 
-                ON CONFLICT (image) DO UPDATE 
-                SET
-                image=EXCLUDED.image
-                        """, (
-            flat.link, flat.reference, flat.posted_date, flat.title, flat.description, flat.city, flat.rooms,
-            flat.district,
-            flat.neighborhood,
-            flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type,
-            flat.floor, flat.images))
 
+
+    def get_flats(self):
+        return self.fetch_all("""SELECT * FROM realt""")
 

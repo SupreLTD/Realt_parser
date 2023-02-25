@@ -1,19 +1,28 @@
 import os
 import re
 from datetime import datetime
-
 from progress.bar import PixelBar
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-
 from data import Flat
+from fake_useragent import UserAgent
+from environs import Env
+
 from db_client import DbPostgres
+
+env = Env()
+env.read_env()
+DBNAME = env.str('DBNAME')
+USER = env.str('USER')
+PASSWORD = env.str('PASSWORD')
+HOST = env.str('HOST')
 
 PARSER_NAME = 'realt.by'
 
 URL = 'https://realt.by/sale/flats/'
-HEADERS = headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36',}
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36', }
 
 COOKIES = {
     '_gcl_au': '1.1.956878246.1676635258',
@@ -41,13 +50,14 @@ COOKIES = {
     'directCrm-session': '%7B%22deviceGuid%22%3A%224dbf44df-f4ec-4844-9ffc-c13bf3b34d35%22%7D',
 }
 
-class Parser(DbPostgres):
+
+class ParserRealt(DbPostgres):
     url = ''
     headers = {}
     cookies = {}
 
-    def __init__(self, url=None, headers=None, cookies=None):
-        super().__init__()
+    def __init__(self, url=None, headers=None, cookies=None, dbname=None, user=None, password=None, host=None):
+        DbPostgres.__init__(self, dbname, user, password, host)
         self.url = url
         self.headers = headers
         self.cookies = cookies
@@ -58,27 +68,24 @@ class Parser(DbPostgres):
 
         return int(soup)
 
-    def get_all_flat_links(self):
+    def get_all_flat_links(self, first_page, last_page):
 
         raw_links = []
-        current_page = 1
-        last_page = 100
         bar = PixelBar('Progress', max=last_page)
-        while current_page <= last_page:
+        while first_page <= last_page:
 
-            response = requests.get(self.url + f'?page={current_page}', headers=self.headers, cookies=self.cookies)
+            response = requests.get(self.url + f'?page={first_page}', headers=self.headers, cookies=self.cookies)
             soup = BeautifulSoup(response.content, 'lxml')
             for i in soup.find_all('a', href=True, class_='teaser-title'):
                 raw_links.append(i['href'])
             bar.next()
 
-            current_page += 1
+            first_page += 1
         bar.finish()
         links = list(filter(lambda el: 'object' in el, raw_links))
         return links
 
-    def get_data(self):
-        links = self.get_all_flat_links()
+    def get_data(self, links):
         flats = []
         for link in tqdm(links):
             response = requests.get(link, headers=self.headers)
@@ -157,7 +164,7 @@ class Parser(DbPostgres):
                     for data in progress:
                         f.write(data)
                 images.append(str("images/" + PARSER_NAME + '/' + re.sub('(https://realt.by|/)', '', link) + '/'
-                              + re.sub('(https://static.realt.by/user|/)', '', img)))
+                                  + re.sub('(https://static.realt.by/user|/)', '', img)))
 
             flats.append(Flat(
                 link=link,
@@ -180,15 +187,56 @@ class Parser(DbPostgres):
 
         return flats
 
-    def save_flats(self):
-        for flat in tqdm(self.get_data()):
+    def insert_flat(self, flat):
+        self.query_update("""WITH father AS(
+                 INSERT INTO realt (link, reference, posted_date, title,description, city, rooms, district, neighborhood, 
+                address, price, telephone, area, year_of_construction, house_type, floor)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (link) DO UPDATE
+                SET
+                link = EXCLUDED.link,
+                posted_date = EXCLUDED.posted_date,
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                city = EXCLUDED.city,
+                rooms = EXCLUDED.rooms,
+                district = EXCLUDED.district,
+                neighborhood = EXCLUDED.neighborhood,
+                address = EXCLUDED.address,
+                price = EXCLUDED.price,
+                telephone = EXCLUDED.telephone,
+                area = EXCLUDED.area,
+                year_of_construction = EXCLUDED.year_of_construction,
+                house_type = EXCLUDED.house_type,
+                floor = EXCLUDED.floor
+                RETURNING id 
+                )
+
+                INSERT INTO realt_images (realt_id,image) VALUES ((select id from father), unnest(%s)) 
+                ON CONFLICT (image) DO UPDATE 
+                SET
+                image=EXCLUDED.image
+                        """, (
+            flat.link, flat.reference, flat.posted_date, flat.title, flat.description, flat.city, flat.rooms,
+            flat.district,
+            flat.neighborhood,
+            flat.address, flat.price, flat.telephone, flat.area, flat.year_of_construction, flat.house_type,
+            flat.floor, flat.images))
+
+    def save(self, flats):
+        for flat in tqdm(flats):
             try:
-                self.create_img_table(flat)
+                self.insert_flat(flat)
             except Exception as e:
                 continue
-
         self.close()
 
+    def run(self):
+        links = self.get_all_flat_links(1,2)
+        data = self.get_data(links)
+        self.save(data)
 
-a = Parser(URL,HEADERS)
-a.save_flats()
+
+
+a = ParserRealt(url=URL, headers=HEADERS, dbname=DBNAME, user=USER, password=PASSWORD, host=HOST)
+a.run()
